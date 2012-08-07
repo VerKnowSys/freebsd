@@ -397,9 +397,28 @@ struct ath_rx_edma {
 	struct mbuf	*m_rxpending;
 };
 
+struct ath_tx_edma_fifo {
+	struct ath_buf	**m_fifo;
+	int		m_fifolen;
+	int		m_fifo_head;
+	int		m_fifo_tail;
+	int		m_fifo_depth;
+};
+
 struct ath_tx_methods {
 	int		(*xmit_setup)(struct ath_softc *sc);
 	int		(*xmit_teardown)(struct ath_softc *sc);
+	void		(*xmit_attach_comp_func)(struct ath_softc *sc);
+
+	void		(*xmit_dma_restart)(struct ath_softc *sc,
+			    struct ath_txq *txq);
+	void		(*xmit_handoff)(struct ath_softc *sc,
+			    struct ath_txq *txq, struct ath_buf *bf);
+
+	void		(*xmit_drainq)(struct ath_softc *sc,
+			    struct ath_txq *txq);
+	int		(*xmit_processq)(struct ath_softc *sc,
+			    struct ath_txq *txq, int dosched);
 };
 
 struct ath_softc {
@@ -418,6 +437,7 @@ struct ath_softc {
 	struct ath_rx_methods	sc_rx;
 	struct ath_rx_edma	sc_rxedma[HAL_NUM_RX_QUEUES];	/* HP/LP queues */
 	struct ath_tx_methods	sc_tx;
+	struct ath_tx_edma_fifo	sc_txedma[HAL_NUM_TX_QUEUES];
 
 	int			sc_rx_statuslen;
 	int			sc_tx_desclen;
@@ -443,6 +463,7 @@ struct ath_softc {
 	void			(*sc_setdefantenna)(struct ath_softc *, u_int);
 	unsigned int		sc_invalid  : 1,/* disable hardware accesses */
 				sc_mrretry  : 1,/* multi-rate retry support */
+				sc_mrrprot  : 1,/* MRR + protection support */
 				sc_softled  : 1,/* enable LED gpio status */
 				sc_hardled  : 1,/* enable MAC LED status */
 				sc_splitmic : 1,/* split TKIP MIC keys */
@@ -557,6 +578,7 @@ struct ath_softc {
 	int			sc_txbuf_cnt;	/* how many buffers avail */
 	struct ath_descdma	sc_txdma_mgmt;	/* mgmt TX descriptors */
 	ath_bufhead		sc_txbuf_mgmt;	/* mgmt transmit buffer */
+	struct ath_descdma	sc_txsdma;	/* EDMA TX status desc's */
 	struct mtx		sc_txbuflock;	/* txbuf lock */
 	char			sc_txname[12];	/* e.g. "ath0_buf" */
 	u_int			sc_txqsetup;	/* h/w queues setup */
@@ -1085,8 +1107,9 @@ void	ath_intr(void *);
 		_txr1, _txtr1, _txr2, _txtr2, _txr3, _txtr3) \
 	((*(_ah)->ah_setupXTxDesc)((_ah), (_ds), \
 		(_txr1), (_txtr1), (_txr2), (_txtr2), (_txr3), (_txtr3)))
-#define	ath_hal_filltxdesc(_ah, _ds, _l, _first, _last, _ds0) \
-	((*(_ah)->ah_fillTxDesc)((_ah), (_ds), (_l), (_first), (_last), (_ds0)))
+#define	ath_hal_filltxdesc(_ah, _ds, _b, _l, _did, _qid, _first, _last, _ds0) \
+	((*(_ah)->ah_fillTxDesc)((_ah), (_ds), (_b), (_l), (_did), (_qid), \
+		(_first), (_last), (_ds0)))
 #define	ath_hal_txprocdesc(_ah, _ds, _ts) \
 	((*(_ah)->ah_procTxDesc)((_ah), (_ds), (_ts)))
 #define	ath_hal_gettxintrtxqs(_ah, _txqs) \
@@ -1107,10 +1130,10 @@ void	ath_intr(void *);
 		_txr0, _txtr0, _antm, _rcr, _rcd) \
 	((*(_ah)->ah_setupFirstTxDesc)((_ah), (_ds), (_aggrlen), (_flags), \
 	(_txpower), (_txr0), (_txtr0), (_antm), (_rcr), (_rcd)))
-#define	ath_hal_chaintxdesc(_ah, _ds, _pktlen, _hdrlen, _type, _keyix, \
-	_cipher, _delims, _seglen, _first, _last, _lastaggr) \
-	((*(_ah)->ah_chainTxDesc)((_ah), (_ds), (_pktlen), (_hdrlen), \
-	(_type), (_keyix), (_cipher), (_delims), (_seglen), \
+#define	ath_hal_chaintxdesc(_ah, _ds, _bl, _sl, _pktlen, _hdrlen, _type, \
+	_keyix, _cipher, _delims, _first, _last, _lastaggr) \
+	((*(_ah)->ah_chainTxDesc)((_ah), (_ds), (_bl), (_sl), \
+	(_pktlen), (_hdrlen), (_type), (_keyix), (_cipher), (_delims), \
 	(_first), (_last), (_lastaggr)))
 #define	ath_hal_setuplasttxdesc(_ah, _ds, _ds0) \
 	((*(_ah)->ah_setupLastTxDesc)((_ah), (_ds), (_ds0)))
@@ -1120,7 +1143,7 @@ void	ath_intr(void *);
 	(_series), (_ns), (_flags)))
 
 #define	ath_hal_set11n_aggr_first(_ah, _ds, _len, _num) \
-	((*(_ah)->ah_set11nAggrFirst)((_ah), (_ds), (_len), (_num)))
+	((*(_ah)->ah_set11nAggrFirst)((_ah), (_ds), (_len)))
 #define	ath_hal_set11naggrmiddle(_ah, _ds, _num) \
 	((*(_ah)->ah_set11nAggrMiddle)((_ah), (_ds), (_num)))
 #define	ath_hal_set11n_aggr_last(_ah, _ds) \

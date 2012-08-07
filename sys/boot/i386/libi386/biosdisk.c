@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 1998 Michael Smith <msmith@freebsd.org>
+ * Copyright (c) 2012 Andrey V. Elsukov <ae@FreeBSD.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -344,7 +345,7 @@ static int
 bd_realstrategy(void *devdata, int rw, daddr_t dblk, size_t size, char *buf,
     size_t *rsize)
 {
-	struct disk_devdesc *dev = (struct disk_devdesc *)devdata;
+    struct disk_devdesc *dev = (struct disk_devdesc *)devdata;
     int			blks;
 #ifdef BD_SUPPORT_FRAGS /* XXX: sector size */
     char		fragbuf[BIOSDISK_SECSIZE];

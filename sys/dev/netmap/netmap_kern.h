@@ -62,9 +62,9 @@
  * For the 32-bit value, 0x100000 (bit 20) has no clashes up to 3.3.1
  */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37)
-#define IFCAP_NETMAP   0x8000
+#define IFCAP_NETMAP	0x8000
 #else
-#define IFCAP_NETMAP   0x100000
+#define IFCAP_NETMAP	0x100000
 #endif
 
 #elif defined (__APPLE__)
@@ -80,10 +80,6 @@
 #error unsupported platform
 #endif
 
-#ifdef MALLOC_DECLARE
-MALLOC_DECLARE(M_NETMAP);
-#endif
-
 #define ND(format, ...)
 #define D(format, ...)						\
 	do {							\
@@ -94,9 +90,6 @@ MALLOC_DECLARE(M_NETMAP);
 		__FUNCTION__, __LINE__, ##__VA_ARGS__);		\
 	} while (0)
  
-#ifndef IFF_NETMAP	/* XXX is it really needed ? */
-#define IFF_NETMAP     0x20000
-#endif
 struct netmap_adapter;
 
 /*
@@ -248,7 +241,7 @@ struct netmap_slot *netmap_reset(struct netmap_adapter *na,
 	enum txrx tx, int n, u_int new_cur);
 int netmap_ring_reinit(struct netmap_kring *);
 
-extern int netmap_buf_size;
+extern u_int netmap_buf_size;
 #define NETMAP_BUF_SIZE	netmap_buf_size
 extern int netmap_mitigate;
 extern int netmap_no_pendintr;
@@ -310,8 +303,8 @@ netmap_reload_map(bus_dma_tag_t tag, bus_dmamap_t map, void *buf)
  * XXX How do we redefine these functions:
  *
  * on linux we need
- *     dma_map_single(&pdev->dev, virt_addr, len, direction)
- *     dma_unmap_single(&adapter->pdev->dev, phys_addr, len, direction
+ *	dma_map_single(&pdev->dev, virt_addr, len, direction)
+ *	dma_unmap_single(&adapter->pdev->dev, phys_addr, len, direction
  * The len can be implicit (on netmap it is NETMAP_BUF_SIZE)
  * unfortunately the direction is not, so we need to change
  * something to have a cross API
@@ -327,9 +320,9 @@ netmap_reload_map(bus_dma_tag_t tag, bus_dmamap_t map, void *buf)
 	//buffer_info->next_to_watch = l;
 	/* reload dma map */
 	dma_unmap_single(&adapter->pdev->dev, buffer_info->dma,
-	       NETMAP_BUF_SIZE, DMA_TO_DEVICE);
+			NETMAP_BUF_SIZE, DMA_TO_DEVICE);
 	buffer_info->dma = dma_map_single(&adapter->pdev->dev,
-	addr, NETMAP_BUF_SIZE, DMA_TO_DEVICE);
+			addr, NETMAP_BUF_SIZE, DMA_TO_DEVICE);
 
 	if (dma_mapping_error(&adapter->pdev->dev, buffer_info->dma)) {
 		D("dma mapping error");

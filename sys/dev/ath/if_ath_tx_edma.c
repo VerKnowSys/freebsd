@@ -119,26 +119,169 @@ __FBSDID("$FreeBSD$");
 
 /*
  * some general macros
-  */
+ */
 #define	INCR(_l, _sz)		(_l) ++; (_l) &= ((_sz) - 1)
 #define	DECR(_l, _sz)		(_l) --; (_l) &= ((_sz) - 1)
 
+/*
+ * XXX doesn't belong here, and should be tunable
+ */
+#define	ATH_TXSTATUS_RING_SIZE	512
+
 MALLOC_DECLARE(M_ATHDEV);
+
+/*
+ * Re-initialise the DMA FIFO with the current contents of
+ * said FIFO.
+ *
+ * This should only be called as part of the chip reset path, as it
+ * assumes the FIFO is currently empty.
+ *
+ * TODO: verify that a cold/warm reset does clear the TX FIFO, so
+ * writing in a partially-filled FIFO will not cause double-entries
+ * to appear.
+ */
+static void
+ath_edma_dma_restart(struct ath_softc *sc, struct ath_txq *txq)
+{
+
+	device_printf(sc->sc_dev, "%s: called: txq=%p, qnum=%d\n",
+	    __func__,
+	    txq,
+	    txq->axq_qnum);
+}
+
+/*
+ * Handoff this frame to the hardware.
+ *
+ * For the multicast queue, this will treat it as a software queue
+ * and append it to the list, after updating the MORE_DATA flag
+ * in the previous frame.  The cabq processing code will ensure
+ * that the queue contents gets transferred over.
+ *
+ * For the hardware queues, this will queue a frame to the queue
+ * like before, then populate the FIFO from that.  Since the
+ * EDMA hardware has 8 FIFO slots per TXQ, this ensures that
+ * frames such as management frames don't get prematurely dropped.
+ *
+ * This does imply that a similar flush-hwq-to-fifoq method will
+ * need to be called from the processq function, before the
+ * per-node software scheduler is called.
+ */
+static void
+ath_edma_xmit_handoff(struct ath_softc *sc, struct ath_txq *txq,
+    struct ath_buf *bf)
+{
+
+	device_printf(sc->sc_dev, "%s: called; bf=%p, txq=%p, qnum=%d\n",
+	    __func__,
+	    bf,
+	    txq,
+	    txq->axq_qnum);
+
+	/*
+	 * XXX For now this is a placeholder; free the buffer
+	 * and inform the stack that the TX failed.
+	 */
+	ath_tx_default_comp(sc, bf, 1);
+}
+
+static int
+ath_edma_setup_txfifo(struct ath_softc *sc, int qnum)
+{
+	struct ath_tx_edma_fifo *te = &sc->sc_txedma[qnum];
+
+	te->m_fifo = malloc(sizeof(struct ath_buf *) * HAL_TXFIFO_DEPTH,
+	    M_ATHDEV,
+	    M_NOWAIT | M_ZERO);
+	if (te->m_fifo == NULL) {
+		device_printf(sc->sc_dev, "%s: malloc failed\n",
+		    __func__);
+		return (-ENOMEM);
+	}
+
+	/*
+	 * Set initial "empty" state.
+	 */
+	te->m_fifo_head = te->m_fifo_tail = te->m_fifo_depth = 0;
+	
+	return (0);
+}
+
+static int
+ath_edma_free_txfifo(struct ath_softc *sc, int qnum)
+{
+	struct ath_tx_edma_fifo *te = &sc->sc_txedma[qnum];
+
+	/* XXX TODO: actually deref the ath_buf entries? */
+	free(te->m_fifo, M_ATHDEV);
+	return (0);
+}
 
 static int
 ath_edma_dma_txsetup(struct ath_softc *sc)
 {
+	int error;
+	int i;
 
-	/* XXX placeholder */
+	error = ath_descdma_alloc_desc(sc, &sc->sc_txsdma,
+	    NULL, "txcomp", sc->sc_tx_statuslen, ATH_TXSTATUS_RING_SIZE);
+	if (error != 0)
+		return (error);
+
+	ath_hal_setuptxstatusring(sc->sc_ah,
+	    (void *) sc->sc_txsdma.dd_desc,
+	    sc->sc_txsdma.dd_desc_paddr,
+	    ATH_TXSTATUS_RING_SIZE);
+
+	for (i = 0; i < HAL_NUM_TX_QUEUES; i++) {
+		ath_edma_setup_txfifo(sc, i);
+	}
+
+
 	return (0);
 }
 
 static int
 ath_edma_dma_txteardown(struct ath_softc *sc)
 {
+	int i;
 
-	/* XXX placeholder */
+	for (i = 0; i < HAL_NUM_TX_QUEUES; i++) {
+		ath_edma_free_txfifo(sc, i);
+	}
+
+	ath_descdma_cleanup(sc, &sc->sc_txsdma, NULL);
 	return (0);
+}
+
+static int
+ath_edma_tx_processq(struct ath_softc *sc, struct ath_txq *txq, int dosched)
+{
+
+	return (0);
+}
+
+static void
+ath_edma_tx_draintxq(struct ath_softc *sc, struct ath_txq *txq)
+{
+
+}
+
+static void
+ath_edma_tx_proc(void *arg, int npending)
+{
+	struct ath_softc *sc = (struct ath_softc *) arg;
+
+	device_printf(sc->sc_dev, "%s: called, npending=%d\n",
+	    __func__, npending);
+}
+
+static void
+ath_edma_attach_comp_func(struct ath_softc *sc)
+{
+
+	TASK_INIT(&sc->sc_txtask, 0, ath_edma_tx_proc, sc);
 }
 
 void
@@ -159,4 +302,10 @@ ath_xmit_setup_edma(struct ath_softc *sc)
 
 	sc->sc_tx.xmit_setup = ath_edma_dma_txsetup;
 	sc->sc_tx.xmit_teardown = ath_edma_dma_txteardown;
+	sc->sc_tx.xmit_attach_comp_func = ath_edma_attach_comp_func;
+
+	sc->sc_tx.xmit_dma_restart = ath_edma_dma_restart;
+	sc->sc_tx.xmit_handoff = ath_edma_xmit_handoff;
+	sc->sc_tx.xmit_processq = ath_edma_tx_processq;
+	sc->sc_tx.xmit_drainq = ath_edma_tx_draintxq;
 }

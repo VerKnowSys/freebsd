@@ -220,6 +220,8 @@ typedef enum {
 
 #define	HAL_NUM_RX_QUEUES	2		/* max possible # of queues */
 
+#define	HAL_TXFIFO_DEPTH	8		/* transmit fifo depth */
+
 /*
  * Transmit queue subtype.  These map directly to
  * WME Access Categories (except for UPSD).  Refer
@@ -580,13 +582,16 @@ typedef enum {
 
 typedef struct {
 	u_int	Tries;
-	u_int	Rate;
+	u_int	Rate;		/* hardware rate code */
+	u_int	RateIndex;	/* rate series table index */
 	u_int	PktDuration;
 	u_int	ChSel;
 	u_int	RateFlags;
 #define	HAL_RATESERIES_RTS_CTS		0x0001	/* use rts/cts w/this series */
 #define	HAL_RATESERIES_2040		0x0002	/* use ext channel for series */
 #define	HAL_RATESERIES_HALFGI		0x0004	/* use half-gi for series */
+#define	HAL_RATESERIES_STBC		0x0008	/* use STBC for series */
+	u_int	tx_power_cap;
 } HAL_11N_RATE_SERIES;
 
 typedef enum {
@@ -1076,7 +1081,8 @@ struct ath_hal {
 				u_int txRate2, u_int txTries2,
 				u_int txRate3, u_int txTries3);
 	HAL_BOOL  __ahdecl(*ah_fillTxDesc)(struct ath_hal *, struct ath_desc *,
-				u_int segLen, HAL_BOOL firstSeg,
+				HAL_DMA_ADDR *bufAddrList, uint32_t *segLenList,
+				u_int descId, u_int qcuId, HAL_BOOL firstSeg,
 				HAL_BOOL lastSeg, const struct ath_desc *);
 	HAL_STATUS __ahdecl(*ah_procTxDesc)(struct ath_hal *,
 				struct ath_desc *, struct ath_tx_status *);
@@ -1221,8 +1227,11 @@ struct ath_hal {
 
 	/* 802.11n Functions */
 	HAL_BOOL  __ahdecl(*ah_chainTxDesc)(struct ath_hal *,
-				struct ath_desc *, u_int, u_int, HAL_PKT_TYPE,
-				u_int, HAL_CIPHER, uint8_t, u_int, HAL_BOOL,
+				struct ath_desc *,
+				HAL_DMA_ADDR *bufAddrList,
+				uint32_t *segLenList,
+				u_int, u_int, HAL_PKT_TYPE,
+				u_int, HAL_CIPHER, uint8_t, HAL_BOOL,
 				HAL_BOOL, HAL_BOOL);
 	HAL_BOOL  __ahdecl(*ah_setupFirstTxDesc)(struct ath_hal *,
 				struct ath_desc *, u_int, u_int, u_int,
@@ -1233,7 +1242,7 @@ struct ath_hal {
 	    			struct ath_desc *, u_int, u_int,
 				HAL_11N_RATE_SERIES [], u_int, u_int);
 	void	  __ahdecl(*ah_set11nAggrFirst)(struct ath_hal *,
-				struct ath_desc *, u_int, u_int);
+				struct ath_desc *, u_int);
 	void	  __ahdecl(*ah_set11nAggrMiddle)(struct ath_hal *,
 	    			struct ath_desc *, u_int);
 	void	  __ahdecl(*ah_set11nAggrLast)(struct ath_hal *,

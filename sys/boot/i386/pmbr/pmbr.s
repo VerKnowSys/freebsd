@@ -94,8 +94,7 @@ main:	 	cmpb $0x80,%dl			# Drive valid?
 main.1: 	movb $0x80,%dl			# Assume drive 0x80
 #
 # Load the GPT header and verify signature.  Try LBA 1 for the primary one and
-# the last LBA for the backup if it is broken.  Skip the LBAs if GEOM
-# metadata found at the backup location.
+# the last LBA for the backup if it is broken.
 #
 main.2:		call getdrvparams		# Read drive parameters
 		movb $1,%dh			# %dh := 1 (reading primary)
